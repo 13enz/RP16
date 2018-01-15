@@ -20,7 +20,16 @@ SELECT *
 FROM   RISK_SCORE_KYC_Slice2
 UNION ALL
 SELECT *
-FROM   RISK_SCORE_KYC_Slice3) M
+FROM   RISK_SCORE_KYC_Slice3
+UNION ALL
+SELECT *
+FROM   RISK_SCORE_KYC_Slice4
+UNION ALL
+SELECT *
+FROM   RISK_SCORE_KYC_Slice5
+) M
+
+
 
 /***** Missing customer names *****/
 SELECT   V_CUST_NUMBER, SUM(CASE WHEN V_CUSTOMER_NAME = '' THEN 0 ELSE 1 END) AS COUNT
@@ -57,6 +66,7 @@ set @query = 'CREATE VIEW vUATOracleScore AS SELECT [Customer_ID],[Customer_Risk
                max(Risk_Score)
                 for Risk_Parameter in (' + @cols + ')
             ) pvt'
+
 execute(@query)
 
 /*******Create PIVOT View for Oracle parameters Detail********/
@@ -64,7 +74,7 @@ IF OBJECT_ID('vUATOracleDetails', 'V') IS NOT NULL
 	DROP VIEW vUATOracleDetails   
 set @query = 'CREATE VIEW vUATOracleDetails AS SELECT [Customer_ID],[Customer_RiskScore], Customer_Type, Customer_Name,' + @cols + ' from 
             (
-                select [Customer_ID],[Customer_RiskScore], Customer_Type, Customer_Name, Risk_Parameter, Risk_Details, Risk_Score
+                select [Customer_ID],[Customer_RiskScore], Customer_Type, Customer_Name, Risk_Parameter, Risk_Details
                 from [RISK_SCORE_KYC_ALL]
            ) a
             pivot 
@@ -78,6 +88,8 @@ execute(@query)
 
 /*----- Compare simulation with Oracle KYC -----*/
 drop table RISK_SCORE_KYC_UNMATCH;
+
+
 
 select   -- Oracle Parameters from PIVOT views
          b.Customer_ID,
@@ -124,7 +136,12 @@ from     vUATOracleScore b
 		 left join T_KYC_RISK_SCORE a on b.Customer_ID = a.CUSTOMER_ID
 where    b.Customer_RiskScore <> a.KYC_RISK_SCORE;
 
+select * from RISK_SCORE_KYC_UNMATCH  --- 182,691
+select count(distinct CUSTOMER_ID) from vUATOracleScore  --- 8,013,196
+
+
 /***** Determine cause of failure *****/
+--- Induvidual
 select   Customer_Type,
 
          sum(case when SIM_CITIZENSHIP_RISK = [RB_CCR_PRMRY_CTZSHP] then 0
@@ -146,7 +163,7 @@ from     RISK_SCORE_KYC_UNMATCH
 where    Customer_Type = 'IND'
 group by Customer_Type;
 		 
-		 
+--- Cooperate		 
 select   Customer_Type,
 
          sum(case when SIM_INDUSTRY_RISK = [RB_CCR_INDUS_RISK] then 0
@@ -195,22 +212,81 @@ group by a.Customer_ID,
 		 b.[MB_CCR_GEO_CTZ],
 		 c.NATIONALITY_CODE;
 
+/** Individual **/
 /***** Occupation failed *****/
 select   a.Customer_ID,
          a.Customer_Name,
          a.Customer_Type,
+		 a.SIM_OCCUPATION_RISK,
+		 a.[RB_CCR_OCCUP],
+		 a.[MB_CCR_OCP_RSK],
 		 c.OCCUPATION,
 		 c.FCCM_OCCUPATION,
-         max(b.[RB_CCR_OCCUP]) as [RB_CCR_OCCUP],
-         max(b.[MB_CCR_OCP_RSK]) as [MB_CCR_OCP_RSK]
+         b.[RB_CCR_OCCUP] as [RB_CCR_OCCUP],
+         b.[MB_CCR_OCP_RSK] as [MB_CCR_OCP_RSK]
 from     RISK_SCORE_KYC_UNMATCH a
          left join [dbo].[vUATOracleDetails] b on a.Customer_ID = b.Customer_ID
 		 left join T_KYC_RISK_SCORE c on a.Customer_ID = c.CUSTOMER_ID
 where    a.customer_type = 'IND'
          and a.SIM_OCCUPATION_RISK <> (case when a.[RB_CCR_OCCUP] is null then a.[MB_CCR_OCP_RSK] else a.[RB_CCR_OCCUP] end)
-group by a.Customer_ID,
+
+---- Account Type failed ----    
+select   a.Customer_ID,
          a.Customer_Name,
          a.Customer_Type,
-		 c.OCCUPATION,
-		 c.FCCM_OCCUPATION
-         
+		 a.SIM_ACCTTYPE_IND_RISK,
+		 a.[MB_CCR_ACT_PRD_RSK] as [MB_CCR_ACT_PRD_RSK_SCORE],
+		 c.Product_source_type_code,
+		 c.FCCM_ACCT_TYPE,
+		 b.[MB_CCR_ACT_PRD_RSK] as [MB_CCR_ACT_PRD_RSK_DETAIL]
+from     RISK_SCORE_KYC_UNMATCH a
+         left join [dbo].[vUATOracleDetails] b on a.Customer_ID = b.Customer_ID
+		 left join T_KYC_RISK_SCORE c on a.Customer_ID = c.CUSTOMER_ID
+where    a.customer_type = 'IND' and a.SIM_ACCTTYPE_IND_RISK <> a.[MB_CCR_ACT_PRD_RSK]
+
+
+/* Cooperate  */
+----- LEN_REL failed -----
+select   a.Customer_ID,
+         a.Customer_Name,
+         a.Customer_Type,
+		 a.SIM_LEN_REL_RISK,
+		 a.[MB_CCR_REL_PRD],
+		 c.ACQUISITION_DATE,
+		 c.DATE_OPENED,
+		 c.LEN_OF_REL_MTH,
+		 b.[MB_CCR_REL_PRD]
+from     RISK_SCORE_KYC_UNMATCH a
+         left join [dbo].[vUATOracleDetails] b on a.Customer_ID = b.Customer_ID
+		 left join T_KYC_RISK_SCORE c on a.Customer_ID = c.CUSTOMER_ID
+where    a.customer_type = 'ORG' and a.SIM_LEN_REL_RISK <> a.[MB_CCR_REL_PRD]
+
+----- CORP_AGE failed -----
+select   a.Customer_ID,
+         a.Customer_Name,
+         a.Customer_Type,
+		 a.SIM_CORP_AGE_RISK,
+		 a.[MB_CCR_COR_AGE],
+		 c.INCORPORATION_DATE,
+		 c.CORP_AGE_MTH,
+		 b.[MB_CCR_COR_AGE]
+from     RISK_SCORE_KYC_UNMATCH a
+         left join [dbo].[vUATOracleDetails] b on a.Customer_ID = b.Customer_ID
+		 left join T_KYC_RISK_SCORE_ORIG c on a.Customer_ID = c.CUSTOMER_ID
+where    a.customer_type = 'ORG' and a.SIM_CORP_AGE_RISK <> a.[MB_CCR_COR_AGE]
+
+
+
+----- ACCT_TYPE failed -----
+select   a.Customer_ID,
+         a.Customer_Name,
+         a.Customer_Type,
+		 a.SIM_ACCTTYPE_ORG_RISK,
+		 a.[MB_CCR_ACT_PRD_RSK],
+		 c.Product_source_type_code,
+		 c.FCCM_ACCT_TYPE,
+		 b.[MB_CCR_ACT_PRD_RSK]
+from     RISK_SCORE_KYC_UNMATCH a
+         left join [dbo].[vUATOracleDetails] b on a.Customer_ID = b.Customer_ID
+		 left join T_KYC_RISK_SCORE_ORIG c on a.Customer_ID = c.CUSTOMER_ID
+where    a.customer_type = 'ORG' and a.SIM_ACCTTYPE_ORG_RISK <> a.[MB_CCR_ACT_PRD_RSK]
