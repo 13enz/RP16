@@ -1,4 +1,5 @@
 /**** Create a combined table *****/
+/* ----Start of Step 2 ----*/
 drop table RISK_SCORE_KYC_ALL;
 
 SELECT N_RA_ID as N_RA_ID,
@@ -29,7 +30,7 @@ SELECT *
 FROM   RISK_SCORE_KYC_Slice5
 ) M
 
-
+/* ----END of Step 1 ----*/
 
 /***** Missing customer names *****/
 /*
@@ -42,6 +43,7 @@ HAVING   SUM(CASE WHEN V_CUSTOMER_NAME = '' THEN 0 ELSE 1 END) = 0
 */
 
 
+/* ----Start of Step 2 ----*/
 /*###### Create PIVOT VIEW ###### */
 
 DECLARE @cols AS NVARCHAR(MAX),
@@ -87,6 +89,10 @@ execute(@query)
 
 /*###### Create PIVOT VIEW ###### */
 
+/* ----END of Step 2 ----*/
+
+
+/* ----Start of Step 3 ----*/
 /*----- Compare simulation with Oracle KYC -----*/
 drop table RISK_SCORE_KYC_UNMATCH;
 
@@ -134,12 +140,15 @@ into     RISK_SCORE_KYC_UNMATCH
 from     vUATOracleScore b 
 		 left join T_KYC_RISK_SCORE a on b.Customer_ID = a.CUSTOMER_ID
 where    b.Customer_RiskScore <> a.KYC_RISK_SCORE;
+/* ----End of Step 3 ----*/
 
 /*
 select count(*) from RISK_SCORE_KYC_UNMATCH  
 select count(distinct CUSTOMER_ID) from vUATOracleScore 
 */
 
+
+/* ----Start of Step 4 ----*/
 /***** Determine cause of failure *****/
 --- Induvidual
 select   Customer_Type,
@@ -187,6 +196,7 @@ group by Customer_Type;
 
 -----------------------------------------------------------------------------------------------------------------
 /***** Citizenship Failed *****/
+/*
 select   a.Customer_ID,
          a.Customer_Name,
          a.Customer_Type,
@@ -213,6 +223,8 @@ group by a.Customer_ID,
 		 a.[MB_CCR_GEO_CTZ],
 		 b.[MB_CCR_GEO_CTZ],
 		 c.NATIONALITY_CODE;
+*/
+
 
 /** Individual **/
 /***** Occupation failed *****/
@@ -292,3 +304,12 @@ from     RISK_SCORE_KYC_UNMATCH a
          left join [dbo].[vUATOracleDetails] b on a.Customer_ID = b.Customer_ID
 		 left join T_KYC_RISK_SCORE_ORIG c on a.Customer_ID = c.CUSTOMER_ID
 where    a.customer_type = 'ORG' and a.SIM_ACCTTYPE_ORG_RISK <> a.[MB_CCR_ACT_PRD_RSK]
+
+
+---- More detail for Account information ---
+--- For our simulation
+select * from [dbo].[TAMLA_STG_ACCOUNTS_BASE_KYC] where CUSTOMER_SOURCE_UNIQUE_ID = '000118080756'
+
+--- For Oracle KYC result
+select * from [dbo].[RISK_SCORE_KYC_ALL] where Customer_ID = '000118080756'
+
